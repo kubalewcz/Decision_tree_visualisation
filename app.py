@@ -17,8 +17,7 @@ app.secret_key = 'niewiem'
 def clear_session_on_refresh():
     if request.method == 'GET' and not request.args:
         #session.clear()
-        session.pop('csv_data', None)
-        session.pop('columns', None)
+        pass
 
 @app.route('/samples/<filename>')
 def download_sample(filename):
@@ -33,14 +32,14 @@ def get_sample_files():
         return []
 
 def run_decision_tree_algorithm(csv_data, features, target, params):
-    try:
-        data = pd.read_csv(StringIO(csv_data))
-        tree = DecisionTree(max_depth=params["max_depth"], min_samples_split=params["min_samples_split"])
-        tree.fit(data, features, target)
-        json_tree = json.loads(tree.to_json())
-        return json_tree.get("tree", {})
-    except Exception as e:
-        return {'error': str(e)}
+    data = pd.read_csv(StringIO(csv_data))
+    tree = DecisionTree(
+        max_depth=params["max_depth"],
+        min_samples_split=params["min_samples_split"]
+    )
+    tree.fit(data, features, target)
+    json_tree = json.loads(tree.to_json())
+    return json_tree.get("tree")
 
 
 
@@ -83,30 +82,29 @@ def handle_algorithm_run():
         features = request.form.getlist('features')
         target = request.form['target']
         csv_head = session.get('csv_head')
+
+        if target in features:
+            raise ValueError("Target column must be different from features.")
+
         params = {
             "max_depth": int(request.form.get('max_depth', 4)),
             "min_samples_split": int(request.form.get('min_samples_split', 2))
         }
 
-        if target in features:
-            raise ValueError("Target column must be different from features.")
+        tree = run_decision_tree_algorithm(csv_data, features, target, params)
 
-        result = run_decision_tree_algorithm(csv_data, features, target, params)
         return render_index(
-            result=result,
+            tree=tree,
             selected_features=features,
             selected_target=target,
             max_depth=params["max_depth"],
             min_samples_split=params["min_samples_split"],
             csv_head=csv_head
         )
+
     except Exception as e:
         return render_index(
             error=str(e),
-            selected_features=request.form.getlist('features'),
-            selected_target=request.form['target'],
-            max_depth=request.form.get('max_depth', 4),
-            min_samples_split=request.form.get('min_samples_split', 2),
             csv_head=session.get('csv_head')
         )
 
