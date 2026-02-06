@@ -46,7 +46,7 @@
             border-radius: 4px;
             margin: 10px 0;
         }
-        .result {
+        .tree {
             background-color: #f5f5f5;
             padding: 15px;
             border-radius: 4px;
@@ -255,9 +255,12 @@
     {% endif %}
 
     {% if error %}
-    <div class="error">{{ error }}</div>
+        <div class="error">{{ error }}</div>
     {% endif %}
-    {% if result %}
+
+    {% if tree %}
+
+    <div id="tree-anchor"></div>
     <div class="result">
         <h2>Decision Tree Visualization:</h2>
 
@@ -270,224 +273,14 @@
         <div class="tooltip" id="tooltip"></div>
     </div>
     {% endif %}
-    <script>
-        {% if result %}
-        document.addEventListener("DOMContentLoaded", function() {
-            const jsonData = {{ result | tojson }};
-            function convertToD3Hierarchy(data) {
-                if (!data) return null;
-                const node = {
-                    name: data.feature || data.label || 'root',
-                    type: data.type,
-                    entropy: data.entropy,
-                    majority_class: data.majority_class,
-                    class_distribution: data.class_distribution,
-                    all_gains: data.all_gains || {},
-                    children: []
-                };
-                if (data.children) {
-                    for (let childKey in data.children) {
-                        const childNode = convertToD3Hierarchy(data.children[childKey]);
-                        if (childNode) {
-                            childNode.linkLabel = childKey;
-                            node.children.push(childNode);
-                        }
-                    }
-                }
-                return node;
-            }
 
-            const treeData = convertToD3Hierarchy(jsonData);
-            const margin = {top: 40, right: 90, bottom: 50, left: 90},
-                  width = 960 - margin.left - margin.right,
-                  height = 600 - margin.top - margin.bottom;
+    {% if tree %}
+        <script>
+            window.TREE_DATA = {{ tree | tojson }};
+        </script>
 
-            const svg = d3.select("#tree")
-                .append("svg")
-                .attr("width", width + margin.right + margin.left)
-                .attr("height", height + margin.top + margin.bottom)
-                .call(d3.zoom().on("zoom", (event) => {
-                    g.attr("transform", event.transform);
-                }))
-                .append("g")
-                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+        <script src="{{ url_for('static', filename='js/decision_tree.js') }}"></script>
+    {% endif %}
 
-            const g = svg.append("g");
-
-            let i = 0; // Initialize node ID counter
-
-            let root = d3.hierarchy(treeData);
-
-            const treeLayout = d3.tree().nodeSize([150, 100]);
-
-            root.descendants().forEach((d) => {
-                if (d.depth && d.children) {
-                    d._children = d.children;
-                    d.children = null;
-                }
-            });
-
-            update(root);
-
-            // Add event listeners for the new buttons
-            document.getElementById('expandAll').addEventListener('click', function() {
-                expandAll();
-            });
-
-            document.getElementById('collapseAll').addEventListener('click', function() {
-                collapseAll();
-            });
-
-            function expandAll() {
-                root.descendants().forEach(d => {
-                    if (d._children) {
-                        d.children = d._children;
-                        d._children = null;
-                    }
-                });
-                update(root);
-            }
-
-            function collapseAll() {
-                root.descendants().forEach(d => {
-                    if (d.children && d.depth > 0) {
-                        d._children = d.children;
-                        d.children = null;
-                    }
-                });
-                update(root);
-            }
-
-            function update(source) {
-                treeLayout(root);
-                const nodes = root.descendants();
-                const links = root.links();
-
-                // Update the nodes…
-                const node = g.selectAll('g.node')
-                    .data(nodes, d => d.id || (d.id = ++i));
-
-                // Enter any new nodes at the parent's previous position.
-                const nodeEnter = node.enter().append('g')
-                    .attr('class', 'node')
-                    .attr('transform', d => `translate(${source.x0 || source.x},${source.y0 || source.y})`)
-                    .on('click', click)
-                    .on('mouseover', function(event, d) {
-                        if (d.data.type !== 'leaf') {
-                            tooltip.transition()
-                                .duration(200)
-                                .style('opacity', 1);
-                            tooltip.html(formatAllGains(d.data.all_gains))
-                                .style('left', (event.pageX + 5) + 'px')
-                                .style('top', (event.pageY - 28) + 'px');
-                        }
-                    })
-                    .on('mouseout', function() {
-                        tooltip.transition()
-                            .duration(500)
-                            .style('opacity', 0);
-                    });
-
-                nodeEnter.append('rect')
-                    .attr('width', 120)
-                    .attr('height', 50)
-                    .attr('x', -60)
-                    .attr('y', -25)
-                    .attr('fill', d => d.data.type === 'leaf' ? 'lightgreen' : 'white')
-                    .attr('stroke', 'steelblue');
-
-                nodeEnter.append("text")
-                    .attr("y", -10)
-                    .attr("text-anchor", 'middle')
-                    .html(d => {
-                        const featureText = d.data.type !== 'leaf' ? `<tspan x="0" dy="1.2em">Feature: ${d.data.name}</tspan>` : '';
-                        const entropyText = `<tspan x="0" dy="1.2em">Entropy: ${d.data.entropy.toFixed(2)}</tspan>`;
-                        const classDistText = d.data.type === 'leaf' ? `<tspan x="0" dy="1.2em">Class: ${d.data.majority_class}</tspan>` : '';
-                        return `${featureText} ${entropyText} ${classDistText}`;
-                    });
-
-                const nodeUpdate = nodeEnter.merge(node);
-
-                nodeUpdate.transition().duration(750)
-                    .attr('transform', d => `translate(${d.x},${d.y})`);
-
-                const nodeExit = node.exit().transition().duration(750)
-                    .attr('transform', d => `translate(${source.x},${source.y})`)
-                    .remove();
-
-                nodeExit.select("rect")
-                    .attr("stroke", 'steelblue');
-
-                const link = g.selectAll('path.link')
-                    .data(links, d => d.target.id);
-
-                link.enter().insert('path', 'g')
-                    .attr('class', 'link')
-                    .attr('d', d3.linkVertical()
-                        .x(d => source.x0 || source.x)
-                        .y(d => source.y0 || source.y)
-                    )
-                    .merge(link)
-                    .transition()
-                    .duration(750)
-                    .attr('d', d3.linkVertical()
-                        .x(d => d.x)
-                        .y(d => d.y)
-                    );
-
-                link.exit().transition().duration(1)
-                    .attr('d', d3.linkVertical()
-                        .x(d => source.x)
-                        .y(d => source.y)
-                    )
-                    .remove();
-
-                const linkLabel = g.selectAll(".link-label")
-                    .data(links, d => d.target.id);
-
-                const linkLabelEnter = linkLabel.enter().append("g")
-                    .attr("class", "link-label")
-                    .attr("transform", d => `translate(${(d.source.x + d.target.x) / 2}, ${(d.source.y + d.target.y) / 2})`);
-
-                linkLabelEnter.append("text")
-                    .attr("text-anchor", "middle")
-                    .text(d => d.target.data.linkLabel);
-
-                const linkLabelUpdate = linkLabelEnter.merge(linkLabel);
-
-                linkLabelUpdate.transition().duration(1)
-                    .attr("transform", d => `translate(${(d.source.x + d.target.x) / 2}, ${(d.source.y + d.target.y) / 2})`);
-
-                linkLabel.exit().transition().duration(1)
-                    .attr("transform", d => `translate(${source.x},${source.y})`)
-                    .remove();
-
-                nodes.forEach(d => {
-                    d.x0 = d.x;
-                    d.y0 = d.y;
-                });
-            }
-
-            function formatAllGains(allGains) {
-                return Object.entries(allGains)
-                    .map(([key, value]) => `<strong>${key}:</strong> ${value.toFixed(3)}`)
-                    .join('<br/>');
-            }
-
-            function click(event, d) {
-                if (d.children) {
-                    d._children = d.children;
-                    d.children = null;
-                } else {
-                    d.children = d._children;
-                    d._children = null;
-                }
-                update(d);
-            }
-
-            const tooltip = d3.select("#tooltip");
-        });
-        {% endif %}
-    </script>
 </body>
 </html>
