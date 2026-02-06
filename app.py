@@ -67,6 +67,7 @@ def handle_sample_file_upload():
         session['csv_data'] = csv_data
         session['columns'] = data.columns.tolist()
         session['csv_head'] = csv_head
+        session['csv_size'] = len(data.index)
         return render_index(
             columns=data.columns.tolist(),
             selected_sample=sample_filename,
@@ -82,7 +83,6 @@ def handle_algorithm_run():
         features = request.form.getlist('features')
         target = request.form['target']
         csv_head = session.get('csv_head')
-
         if target in features:
             raise ValueError("Target column must be different from features.")
 
@@ -90,6 +90,8 @@ def handle_algorithm_run():
             "max_depth": int(request.form.get('max_depth', 4)),
             "min_samples_split": int(request.form.get('min_samples_split', 2))
         }
+        if params['min_samples_split'] > session.get('csv_size'):
+            raise ValueError("Not enough samples.")
 
         tree = run_decision_tree_algorithm(csv_data, features, target, params)
 
